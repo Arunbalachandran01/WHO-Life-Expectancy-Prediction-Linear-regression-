@@ -1,0 +1,606 @@
+---
+title: "CIA 1 Life Expectancy"
+output:
+  html_document: default
+  pdf_document: default
+date: "2022-08-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Loading Libraries
+library(tidyverse)
+library(DataExplorer)
+library(openxlsx)
+library(nortest)
+library(car)
+library(MASS)
+library(lmtest)
+library(olsrr)
+library(Ecdat)
+library(Amelia)
+library(missRanger)
+library(ggplot2)
+library(plotly)
+```
+### Importing the dataset
+
+```{r}
+df <- read.csv(choose.files(), header = T)
+head(df)
+```
+
+### Data Preprocessing
+
+Checking the structure of the dataset
+```{r}
+str(df)
+```
+
+
+Checking for the missing values
+```{r}
+sum(is.na(df))
+
+names(which(colSums(is.na(df))>0))
+```
+There are 2563 missing values in 14 different columns.
+
+#### Imputing the missing values
+
+```{r}
+df_imp <- missRanger(df, pmm.k = 3, seed = 153)
+
+head(df_imp)
+
+range(df_imp$Life.expectancy)
+```
+```{r}
+sum(is.na(df_imp))
+```
+#### Data Cleaning
+
+Creating a new variable with all the columns that are required for the analysis and model building.
+
+Removing "Country" and "Year", because it has too many variables and time series which doesn't really help in predicting life expectancy.
+
+Using another variable for Categorical Analysis
+```{r}
+life_selected <- df_imp %>% 
+                          mutate(Hepatitis.B = ifelse(Hepatitis.B < 90, "<90% Covered", ">=90% Covered"),
+                                 Polio = ifelse(Polio < 90, "<90% Covered", ">=90% Covered"),
+                                 Diphtheria = ifelse(Diphtheria < 90, "<90% Covered", ">=90% Covered"),
+                                 Hepatitis.B = as.factor(Hepatitis.B),
+                                 Polio = as.factor(Polio),
+                                 Diphtheria = as.factor(Diphtheria))
+life_selected$Country <- NULL
+life_selected$Year <- NULL
+
+str(life_selected)
+
+life_selected$Status <- as.factor(life_selected$Status)
+
+str(life_selected)
+```
+
+### Exploratory Data Analysis
+
+#### Categorical Variables
+Checking the data distribution of Life.expectancy among all of the Categorical Variables
+
+##### Status
+```{r}
+life_selected %>% 
+                 group_by(Status) %>% 
+                 summarise(count = n()) %>% 
+                 mutate(percentage = paste0(round(count/sum(count)*100, 2), "%"))
+```
+```{r}
+plot1 <-  ggplot(life_selected, aes(x=Status, y = Life.expectancy, fill = Status)) +
+                geom_boxplot() +
+                scale_fill_manual(values=c("green3", "darkorange")) +
+                labs(x = "Development Status", y = "Life Expectancy (Age)") +
+                theme(legend.position = "none")
+
+
+ggplotly(plot1)
+```
+```{r}
+summary(aov(Life.expectancy ~ Status, data = life_selected))
+```
+
+* The number of developing nations is significantly higher than the number of developed nations in these observations.
+* According to the Development Status, it was evident that the Developed Countries have a greater Life Expectancy Distribution, with a Significant Median Distance. Additionally, even though there are some developing country outliers, we will keep them for the time being because they have low leverage.
+* We can infer that there are substantial disparities in life expectancy between developed and developing countries because the p-value from the ANOVA analysis is less than the significance level of 0.05.
+
+##### Hepatitis B Coverage
+
+```{r}
+life_selected %>% 
+                 group_by(Hepatitis.B) %>% 
+                 summarise(count = n()) %>% 
+                 mutate(percentage = paste0(round(count/sum(count)*100, 2), "%"))
+```
+```{r}
+plot2 <-  ggplot(life_selected, aes(x=Hepatitis.B, y = Life.expectancy, fill = Hepatitis.B)) +
+                geom_boxplot() +
+                scale_fill_manual(values=c("green3", "darkorange")) +
+                labs(x = "Hepatitis B Coverage", y = "Life Expectancy (Age)") +
+                theme(legend.position = "none")
+
+
+ggplotly(plot2)
+```
+
+```{r}
+summary(aov(Life.expectancy ~ Hepatitis.B, data = life_selected))
+```
+* Surprisingly, half of the findings are from countries where hepatitis.B vaccination coverage is less than 90%.
+* Greater life expectancy is associated with countries that cover their hepatitis B vaccination at a rate of 90% or higher, with a significant median gap. Even though there are few outliers among the developing nations, the majority of them have low leverage, so we will preserve it for the time being.
+* We can infer that there are significant differences in Life Expectancy across the groups in Hepatitis B Coverage because the p-value is less than the significance level of 0.05.
+
+##### Polio Coverage
+
+```{r}
+life_selected %>% 
+                 group_by(Polio) %>% 
+                 summarise(count = n()) %>% 
+                 mutate(percentage = paste0(round(count/sum(count)*100, 2), "%"))
+
+```
+
+```{r}
+plot3 <-  ggplot(life_selected, aes(x=Polio, y = Life.expectancy, fill = Polio)) +
+                geom_boxplot() +
+                scale_fill_manual(values=c("green3", "darkorange")) +
+                labs(x = "Polio Coverage", y = "Life Expectancy (Age)") +
+                theme(legend.position = "none")
+
+
+ggplotly(plot3)
+```
+
+```{r}
+summary(aov(Life.expectancy ~ Polio, data = life_selected))
+```
+* Greater Polio Coverage is better than Hepatitis B Coverage.
+* Greater life expectancy is associated with countries that have polio vaccination coverage rates of 90% or higher, with a significant median distance. Polio does not have the same high outliers as Hepatitis.B. Even though there are few outliers among the developing nations, the majority of them have low leverage, so we will preserve it for the time being.
+* We can draw the conclusion that there are significant differences in life expectancy between the groups in polio coverage because the p-value of the ANOVA Analysis is less than the significance level of 0.05.
+
+##### Diphteria
+```{r}
+life_selected %>% 
+                 group_by(Diphtheria) %>% 
+                 summarise(count = n()) %>% 
+                 mutate(percentage = paste0(round(count/sum(count)*100, 2), "%"))
+```
+```{r}
+plot4 <-  ggplot(life_selected, aes(x=Diphtheria, y = Life.expectancy, fill = Diphtheria)) +
+                geom_boxplot() +
+                scale_fill_manual(values=c("green3", "darkorange")) +
+                labs(x = "Diphtheria Coverage", y = "Life Expectancy (Age)") +
+                theme(legend.position = "none")
+
+
+ggplotly(plot4)
+```
+
+```{r}
+summary(aov(Life.expectancy ~ Diphtheria, data = life_selected))
+```
+
+* In terms of the number of countries, diphtheria coverage is comparable to polio coverage.
+* The spread of diphtheria and polio are somewhat comparable. It can mean that Diphtheria and Polio vaccinations are administered simultaneously.
+* We can draw the conclusion that there are significant differences in life expectancy between the groups in diphtheria coverage because the p-value of the ANOVA Analysis is less than the significance level of 0.05.
+
+#### Association between Categorical Variables
+
+##### Development Status vs Hepatitis B Coverage
+
+```{r}
+library(ggmosaic)
+plot5 <-  ggplot(life_selected) +
+            geom_mosaic(aes(x = product(Status), fill=Hepatitis.B)) +
+            labs(x = NULL, y = NULL) +
+            scale_fill_manual(values=c("green3", "darkorange")) +
+            theme(legend.position = "none")
+
+ggplotly(plot5) 
+```
+```{r}
+chisq.test(table(life_selected$Status, life_selected$Hepatitis.B))
+```
+* The majority of developed nations have higher vaccination rates for hepatitis B.
+* By using the chi-square test, we can see compelling evidence that developed and developing countries typically have different coverage rates for the hepatitis.B vaccine.
+
+##### Development Status vs Polio Coverage
+
+```{r}
+plot6 <-  ggplot(life_selected) +
+            geom_mosaic(aes(x = product(Status), fill=Polio)) +
+            labs(x = NULL, y = NULL) +
+            scale_fill_manual(values=c("green3", "darkorange")) +
+            theme(legend.position = "none")
+
+ggplotly(plot6) 
+```
+```{r}
+chisq.test(table(life_selected$Status, life_selected$Polio))
+```
+* Developed nations have much higher inoculation rates against polio
+* By using the chi-square test, we can observe compelling evidence that developed and developing countries typically have different vaccine coverage rates for polio.
+
+##### Development Status vs Diphtheria Coverage
+```{r}
+plot7 <-  ggplot(life_selected) +
+            geom_mosaic(aes(x = product(Status), fill=Diphtheria)) +
+            labs(x = NULL, y = NULL) +
+            scale_fill_manual(values=c("green3", "darkorange")) +
+            theme(legend.position = "none")
+
+ggplotly(plot7) 
+```
+
+```{r}
+chisq.test(table(life_selected$Status, life_selected$Diphtheria))
+```
+* The relationship between Diphtheria and Polio is comparable to earlier discoveries. On the following test, we'll determine if we just require one of them.
+
+
+##### Using the dataframe to split the categorical variables to numerical variables
+```{r}
+life_exp <- df_imp
+
+life_exp$Developed <- ifelse(life_exp$Status == "Developed", 1, 0)
+life_exp$Developing <- ifelse(life_exp$Status == "Developing", 1, 0)
+life_exp$Hepatitis.B_below90 <- ifelse(life_exp$Hepatitis.B < 90, 1, 0)
+life_exp$Hepatitis.B_above90 <- ifelse(life_exp$Hepatitis.B >= 90, 1, 0)
+life_exp$Polio_below90 <- ifelse(life_exp$Polio < 90, 1, 0)
+life_exp$Polio_above90 <- ifelse(life_exp$Polio >= 90, 1, 0)
+life_exp$Diphtheria_below90 <- ifelse(life_exp$Diphtheria < 90, 1, 0)
+life_exp$Diphtheria_above90 <- ifelse(life_exp$Diphtheria >= 90, 1, 0)
+```
+Dropping the Unwanted columns
+```{r}
+life_exp <- life_exp[c(4:6, 10:12, 14, 16:30)]
+
+head(life_exp)
+str(life_exp)
+```
+##### Correlation
+
+```{r}
+life_cor <- cor(life_exp)
+life_cor
+```
+```{r}
+library(corrplot)
+corrplot(life_cor, method = "number", addCoef.col = "black",number.cex=0.50)
+
+```
+Since it is hard to interpret, plotting correlation using ggcorr.
+
+```{r}
+library(GGally)
+
+data_num <- life_exp %>% 
+                            select_if(is.numeric)
+ggcorr(data_num, 
+       label = T, 
+       label_size = 2,
+       label_round = 2,
+       hjust = 1,
+       size = 3, 
+       color = "royalblue",
+       layout.exp = 5,
+       low = "green3", 
+       mid = "gray95", 
+       high = "darkorange",
+       name = "Correlation")
+```
+
+In the model analysis, we will see that the dependent variable, Life Expectancy, has a moderately strong positive correlation with the independent variables, Education, and Income Composition of Resources. However, there is a bad link between it and adult mortality. This is a true fact, as a high adult mortality rate will inevitably result in a poor life expectancy for all.
+
+A very little link exists between life expectancy and both the population and the measles. The following analysis will be used to evaluate it further.
+
+Additionally, the Corr Matrix reveals a very significant link between baby deaths and under-five fatalities. This high correlation suggests that there is multicollinearity between them. Since other factors appear to be more closely related to situations during the neonatal period, we will deselect under 5.deaths.
+
+```{r}
+
+life_exp1 <- life_exp %>% 
+  select(-under.five.deaths)
+head(life_exp1)
+```
+
+### Model Building
+
+As was said at the outset of this Analysis, we'll use a few key variables to forecast life expectancy. The complete linear prediction model is presented here.
+
+```{r}
+Model1 <- lm(formula = Life.expectancy ~ ., data = life_exp1)
+summary(Model1)
+
+```
+* Interpretation of coefficients: Since there is no condition when all of the independent variables are 0, the intercept is irrelevant in this situation. The coefficients reveal some intriguing results; several of the numerical variables, like adult mortality, infant mortality, alcohol use, HIV infection, and thinness, may have detrimental consequences. Additional of these Variables, according to 10 19.years, may result in a decrease in life expectancy. On the other side, the Life.expectancy is greatly influenced by the Income.composition.of.Resources.
+* Adj. R-squared interpretation: This is a positive result, showing that we are on the right track to develop a good linear model. Approximately 82.40% of the observed variation can be explained by the model's inputs.
+* The most significant predictors, as shown by the p-value, are adult mortality, alcohol use, BMI, HIV/AIDS, income composition of resources, and education. Measles came in second with a 0.01 significant level. For the other variables, we may assume that changes in those predictors do not significantly affect life expectancy.
+
+#### Advanced Feature Selection
+We will now choose the most crucial predictors using R's automatic calculation.
+
+##### Backward Direction 
+```{r}
+model_backward <- stepAIC(Model1, direction = "backward")
+```
+```{r}
+summary(model_backward)
+```
+
+##### Forward Direction
+
+```{r}
+Model2 <- lm(Life.expectancy ~ 1, data = life_exp1)
+```
+```{r}
+model_forward <- stepAIC(Model2, scope = list(lower = Model2, upper = Model1), direction = "forward")
+```
+```{r}
+summary(model_forward)
+```
+##### Both Direction
+
+```{r}
+model_both <- stepAIC(Model1, scope = list(lower = Model2, upper = Model1), direction = "both")
+
+```
+```{r}
+summary(model_both)
+```
+
+##### All possible (Regsubsets)
+
+```{r}
+library(leaps)
+regs <- regsubsets(Life.expectancy ~., data = life_exp1, nbest=10)
+plot(regs, 
+     scale="adjr", 
+     main="All possible regression: ranked by Adjusted R-squared")
+```
+The following variables, based on the supplied plot, are the most important: Adult Mortality, BMI, GDP, HIV AIDS, thinness..1.19.years, Income.composition.of.Resources, and Schooling. The significance of the p-value for the specified variables was also reflected in other models (three stars/***).
+
+##### Model Construction Using Selected Variables
+```{r}
+model_regs <- lm(formula = Life.expectancy ~ Adult.Mortality + BMI + GDP + HIV.AIDS + thinness..1.19.years + Income.composition.of.resources + Schooling, data = life_exp1)
+summary(model_regs)
+```
+#### Compare the Adj. R-Squared from All Models
+
+```{r}
+data.frame(model = c("model_backward","model_forward","model_both", "model_regs"), 
+           AdjRsquare = c(summary(model_backward)$adj.r.square,
+                          summary(model_forward)$adj.r.square,
+                          summary(model_both)$adj.r.square,
+                          summary(model_regs)$adj.r.square))
+```
+The model we will use to predict the 'Life.expectancy' will be model_backward, which we will select based on the supplied result.
+
+### Prediction
+```{r}
+newData = data.frame(Adult.Mortality=55, Measles=4, BMI=23, Total.expenditure=1.23, HIV.AIDS = 23, GDP = 4235, thinness..1.19.years = 12, Income.composition.of.resources = 0.8, Schooling = 19, Developed = 0, Polio_below90 = 0, Diphtheria_below90 = 1)
+predict(model_backward, newData)
+predict(model_backward, newData, interval="confidence", level = 0.99)
+
+```
+```{r}
+predicted=predict(model_backward, life_exp1)
+predicted
+```
+```{r}
+actual = life_exp1$Life.expectancy
+actual
+```
+
+```{r}
+Backtrack=data.frame(actual, predicted)
+Backtrack
+```
+```{r}
+library(Metrics)
+data.frame(Method = c("MSE","RMSE","MAE", "MAPE"), 
+           Error.Value = c(mse(predicted, actual),
+                          rmse(predicted, actual),
+                          mae(predicted, actual),
+                          mape(predicted, actual)))
+
+```
+```{r}
+range(actual)
+```
+When compared to the Life.expectancy as the dependent variable's range, the error values from each technique appear to be tiny. We may therefore anticipate that the predicted values will be fairly close to the actual ones.
+
+```{r}
+plot(actual,col="Red")
+lines(actual,col="Red")
+plot(predicted,col="Blue")
+lines(predicted,col="Blue")
+lines(actual,col="Red")
+```
+From the above chart, we can interpret that the predicted values are close enough to the actual. Therefore, the model is a good fit.
+
+### Checking on Assumptions
+
+#### Normality Test
+##### Ploting Residuals on Histogram
+```{r}
+hist(model_backward$residuals, breaks = 20)
+
+```
+The majority of the residuals appear to be distributed in the middle, suggesting that their distribution is normal.
+##### Ploting Residuals on QQPlot
+```{r}
+plot(model_backward, which = 2)
+```
+The majority of the residuals collected at the middle line suggest that their distribution is normal.
+
+##### Shapiro Test
+```{r}
+shapiro.test(model_regs$residuals)
+```
+Based on Shapiro-Wilk normality test, the p-value < 0.05 implying that the distribution of the data are significantly different from normal distribution. Therefore, we need to do some adjustment to data.
+
+##### Remove Outliers
+```{r}
+boxplot(life_exp1$Life.expectancy, ylab = "Life Expectancy (Age)") # visual boxplot
+```
+```{r}
+outliers_out <- boxplot(life_exp1$Life.expectancy, plot = F)$out # untuk mendaptkan outlier
+life_clean <- life_exp1[-which(life_exp1$Life.expectancy %in% outliers_out), ] # remove outlier dari data
+```
+Let us see the Boxplot after Outliers taken
+
+```{r}
+
+boxplot(life_clean$Life.expectancy, ylab = "Life Expectancy (Age)") # visual boxplot
+```
+
+Unfortunately, there are still some Outliers, so we will eliminate all data with Life.expectancy 50 and below.
+```{r}
+life_clean1 <- life_clean[life_clean$Life.expectancy > 50, ] # Eliminate all below Age 50
+boxplot(life_clean1$Life.expectancy, ylab = "Life Expectancy (Age)")
+```
+##### Creating New Model
+
+```{r}
+clean_full <- lm(formula = Life.expectancy ~., data = life_clean1)
+clean_none <- lm(formula = Life.expectancy ~1, data = life_clean1)
+
+clean_backward <- step(clean_full, direction = "backward")
+```
+
+```{r}
+summary(clean_backward)
+```
+
+```{r}
+clean_forward <- step(clean_none, scope = list(lower = clean_none, upper = clean_full) ,direction = "forward")
+```
+
+```{r}
+summary(clean_forward)
+```
+Unfortunately, the adj. R-squared significantly decreased from 0.823 to 0.8154. This is not what we anticipated. We will therefore maintain the original data source along with any outliers.
+
+##### Transform the Data
+Let's attempt to use Log to alter the data. We will only use the model's internal variables as we have previously determined that "model backward" fits the data the best.
+```{r}
+log_life <- lm(formula = log1p(Life.expectancy) ~ log1p(Adult.Mortality) + log1p(Measles) + log1p(BMI)    +log1p(Total.expenditure) + log1p(HIV.AIDS) + log1p(GDP) + log1p(thinness..1.19.years) + 
+    log1p(Income.composition.of.resources) + log1p(Schooling) + log1p(Developed) + 
+    log1p(Polio_below90) + log1p(Diphtheria_below90), data = life_exp1)
+summary(log_life)
+```
+The Adj. R-Squared is even larger than the "model backward," which is good.
+```{r}
+bc <- MASS::boxcox(model_backward) # boxcox the model_backward
+```
+
+```{r}
+lambda <- bc$x[which.max(bc$y)] # choose the best lambda
+
+powerTransform <- function(y, lambda1, lambda2 = NULL, method = "boxcox") {
+
+  boxcoxTrans <- function(x, lam1, lam2 = NULL) {
+
+    # if we set lambda2 to zero, it becomes the one parameter transformation
+    lam2 <- ifelse(is.null(lam2), 0, lam2)
+
+    if (lam1 == 0L) {
+      log(y + lam2)
+    } else {
+      (((y + lam2)^lam1) - 1) / lam1
+    }
+  }
+
+  switch(method
+         , boxcox = boxcoxTrans(y, lambda1, lambda2)
+         , tukey = y^lambda1
+  )
+}
+
+boxcox_life <- lm(powerTransform(Life.expectancy, lambda) ~ Adult.Mortality + Measles + BMI + 
+    Total.expenditure + HIV.AIDS + GDP + thinness..1.19.years + 
+    Income.composition.of.resources + Schooling + Developed + 
+    Polio_below90 + Diphtheria_below90, data = life_exp1)
+
+summary(boxcox_life)
+
+```
+
+The Adj. R-Squared is smaller than the “model_backward”, we will not consider the box-cox transformation, and will use log transformation as our new model.
+
+#### Second Normality Test
+##### Plot Residuals on Histogram
+```{r}
+hist(log_life$residuals, breaks = 20)
+```
+
+The Residuals seems has a better distribution at center.
+
+##### Plot Residuals on QQPlot
+```{r}
+plot(log_life, which = 2)
+```
+The residuals under -2 and over 2 fell way above/below the center line. Seems still not following the normal distribution.
+
+##### Shapiro Test
+
+```{r}
+library(olsrr)
+ols_test_normality(log_life)
+```
+Based on Shapiro-Wilk, Kolmogorov-Smirnov, Cramer-von Mises, and Anderson-Darling normality test, the p-value < 0.05 implying that the distribution of the data are significantly different from normal distribution. Therefore, we need to do some adjustment to data.
+
+#### Homoscedasticity
+##### Plot Fitted vs Residuals
+```{r}
+par(mfrow=c(2,1))
+plot(log_life, which = c(1:4))
+```
+The error seems not following particular pattern, by visual plot analysis.
+
+##### Breusch-Pagan Test
+```{r}
+library(lmtest)
+bptest(log_life)
+```
+```{r}
+ols_test_breusch_pagan(log_life)
+```
+Using 2 different function to test the homocedasticity, we still get conclusion that the residuals variance is not constant.
+
+##### Multicollinearity Test
+```{r}
+vif(log_life)
+```
+Given that the results of the vif test are less than 10, we may conclude that there is no correlation between any of the independent variables.
+
+Since there is no p-value greater than 0.05, all chosen variables exhibit linear correlation with the dependent variable.
+
+### Conclusion
+
+Based on the Adjusted R-Squared value, Error Value, and Pass 2 of 4 Assumption Check, which is the Multicollinearity and Linearity Test, the linear model appears to be able to predict Life Expectancy. However, homocedasticity and normality do not produce the desired outcome. Even though the residuals plot appears to follow the homocedasticity and normal distribution principles when viewed visually, the results of the statistical test are different.
+
+The linear association between Life Expectancy and the chosen independent variables can be explained using the linear model. It is strongly advised to look at the outliers pattern if we still want to apply this model on the new set of Life.expectancy data because it is highly sensitive to outliers (which pretty massively occurred in this data and taking it out is not a smart option).
+
+
+
+
+
+
+
+
+
+
+
